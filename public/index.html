@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Ajouter un patient</title>
+</head>
+<body>
+  <h1>Formulaire d'ajout de patient</h1>
+  <form id="patientForm">
+    <label>Nom : <input type="text" name="nom" required></label><br><br>
+    <label>Prénom : <input type="text" name="prenom" required></label><br><br>
+    <label>Date de naissance : <input type="date" name="dateNaissance" required></label><br><br>
+    <label>Sexe :
+      <select name="sexe" required>
+        <option value="Homme">Homme</option>
+        <option value="Femme">Femme</option>
+      </select>
+    </label><br><br>
+    <label>Adresse : <input type="text" name="adresse"></label><br><br>
+    <label>Téléphone : <input type="text" name="telephone"></label><br><br>
+    <label>Historique médical :<br>
+      <textarea name="historiqueMedical"></textarea>
+    </label><br><br>
+
+    <button type="submit">Ajouter</button>
+  </form>
+
+  <p id="message"></p>
+
+  <script>
+    const form = document.getElementById('patientForm');
+    const message = document.getElementById('message');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const data = Object.fromEntries(new FormData(form));
+      const response = await fetch('http://localhost:3000/api/patients', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+
+      if (response.ok) {
+        message.textContent = "✅ Patient ajouté avec succès !";
+        form.reset();
+      } else {
+        const error = await response.json();
+        message.textContent = "❌ Erreur : " + error.message;
+      }
+    });
+  </script>
+</body>
+</html>
