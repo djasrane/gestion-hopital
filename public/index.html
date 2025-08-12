@@ -42,11 +42,11 @@
       });
 
       if (response.ok) {
-        message.textContent = "✅ Patient ajouté avec succès !";
+        message.textContent = "Patient ajouté avec succès !";
         form.reset();
       } else {
         const error = await response.json();
-        message.textContent = "❌ Erreur : " + error.message;
+        message.textContent = " Erreur : " + error.message;
       }
     });
   </script>

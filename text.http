@@ -1,0 +1,32 @@
+### TEST: Inscription d'un personnel
+POST http://localhost:3000/api/personnel
+Content-Type: application/json
+
+###
+POST http://localhost:3000/api/personnels
+Content-Type: application/json
+
+{
+  "nom": "Tolba",
+  "poste": "Médecin",
+  "email": "tolba@example.com",
+  "motDePasse": "secret123"
+}
+
+### TEST: Connexion d'un personnel
+POST http://localhost:3000/api/personnel/login
+Content-Type: application/json
+
+{
+  "email": "jean@example.com",
+  "motDePasse": "123456"
+}
+
+###
+
+### Récupérer tout le personnel (nécessite token)
+GET http://localhost:3000/api/personnel
+Authorization: Bearer TOKEN_ICI
+
+###
+POST /api/auth/register ou /login

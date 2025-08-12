@@ -1,6 +1,6 @@
 const Patient = require('../models/Patient');
 
-// ➕ Créer un patient
+// Créer un patient
 exports.creerPatient = async (req, res) => {
   try {
     const patient = new Patient(req.body);
@@ -21,7 +21,7 @@ exports.listerPatients = async (req, res) => {
   }
 };
 
-// 🔍 Obtenir un patient par ID
+//  Obtenir un patient par ID
 exports.getPatientById = async (req, res) => {
   try {
     const patient = await Patient.findById(req.params.id);
@@ -32,7 +32,7 @@ exports.getPatientById = async (req, res) => {
   }
 };
 
-// ✏️ Modifier un patient
+//  Modifier un patient
 exports.modifierPatient = async (req, res) => {
   try {
     const patient = await Patient.findByIdAndUpdate(req.params.id, req.body, { new: true });
@@ -42,7 +42,7 @@ exports.modifierPatient = async (req, res) => {
   }
 };
 
-// ❌ Supprimer un patient
+//  Supprimer un patient
 exports.supprimerPatient = async (req, res) => {
   try {
     await Patient.findByIdAndDelete(req.params.id);
