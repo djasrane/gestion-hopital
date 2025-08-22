@@ -1,32 +1,43 @@
-### TEST: Inscription d'un personnel
-POST http://localhost:3000/api/personnel
+### 1. Test d'inscription d'un nouveau personnel (admin seulement)
+POST cchttp://localhost:8000/api/personnels/register
 Content-Type: application/json
+{
+  "nom": "Succes",
+  "prenom": "Djasrane",
+  "poste": "medecin",
+  "email": "succesdjasranetolba@gmail.com",
+  "motDePasse": "Secret123!",
+  "specialite": "optalmologue"
+}
 
-###
-POST http://localhost:3000/api/personnels
+### 2. Test de connexion d'un personnel
+POST http://localhost:8000/api/auth/login
 Content-Type: application/json
 
 {
-  "nom": "Tolba",
-  "poste": "Médecin",
-  "email": "tolba@example.com",
-  "motDePasse": "secret123"
+  "email": "succesdjasranetolba@gmail.com",
+  "motDePasse": "Secret123!"
 }
 
-### TEST: Connexion d'un personnel
-POST http://localhost:3000/api/personnel/login
+### 3. Récupérer tout le personnel (nécessite token)
+GET http://localhost:8000/api/personnels
 Content-Type: application/json
+Authorization: Bearer votre_token_ici
+
+### 4. Récupérer un personnel spécifique
+GET http://localhost:8000/api/personnels/507f1f77bcf86cd799439011
+Authorization: Bearer votre_token_ici
+
+### 5. Mettre à jour un personnel
+PUT http://localhost:8000/api/personnels/507f1f77bcf86cd799439011
+Content-Type: application/json
+Authorization: Bearer votre_token_ici
 
 {
-  "email": "jean@example.com",
-  "motDePasse": "123456"
+  "poste": "medecin_chef",
+  "specialite": "Neurologie"
 }
 
-###
-
-### Récupérer tout le personnel (nécessite token)
-GET http://localhost:3000/api/personnel
-Authorization: Bearer TOKEN_ICI
-
-###
-POST /api/auth/register ou /login
+### 6. Désactiver un compte personnel
+DELETE http://localhost:8000/api/personnels/507f1f77bcf86cd799439011
+Authorization: Bearer votre_token_admin_ici

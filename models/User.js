@@ -1,26 +1,114 @@
-const mongoose = require("mongoose");
+const mongoose = require('mongoose');
+const validator = require('validator');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
 const userSchema = new mongoose.Schema({
   nom: {
     type: String,
-    required: true,
+    required: [true, 'Le nom est obligatoire'],
+    trim: true,
+    maxlength: [50, 'Le nom ne peut excéder 50 caractères'],
+    validate: {
+      validator: function(v) {
+        return /^[a-zA-Zéèêëàâäôöûüç' -]+$/.test(v);
+      },
+      message: 'Nom invalide (caractères spéciaux non autorisés)'
+    }
   },
   email: {
     type: String,
-    required: true,
+    required: [true, 'L\'email est obligatoire'],
     unique: true,
+    trim: true,
+    lowercase: true,
+    validate: {
+      validator: validator.isEmail,
+      message: 'Email invalide'
+    }
   },
   motDePasse: {
     type: String,
-    required: true,
+    required: [true, 'Le mot de passe est obligatoire'],
+    minlength: [8, 'Le mot de passe doit contenir au moins 8 caractères'],
+    select: false // Ne sera pas retourné dans les requêtes
   },
   role: {
     type: String,
-    enum: ["admin", "docteur", "infirmier"],
-    default: "docteur",
+    enum: {
+      values: ['admin', 'docteur', 'infirmier', 'technicien'],
+      message: 'Rôle {VALUE} non supporté'
+    },
+    default: 'docteur'
+  },
+  estActif: {
+    type: Boolean,
+    default: true
+  },
+  dernierAcces: {
+    type: Date
+  },
+  refreshToken: {
+    type: String,
+    select: false
   }
 }, {
-  timestamps: true
+  timestamps: true,
+  toJSON: {
+    virtuals: true,
+    transform: function(doc, ret) {
+      delete ret.motDePasse;
+      delete ret.refreshToken;
+      delete ret.__v;
+      return ret;
+    }
+  },
+  toObject: { virtuals: true }
 });
 
-module.exports = mongoose.model("User", userSchema);
+// Middleware pour hasher le mot de passe avant sauvegarde
+userSchema.pre('save', async function(next) {
+  if (!this.isModified('motDePasse')) return next();
+  
+  try {
+    const salt = await bcrypt.genSalt(10);
+    this.motDePasse = await bcrypt.hash(this.motDePasse, salt);
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Méthode pour comparer les mots de passe
+userSchema.methods.comparePassword = async function(candidatePassword) {
+  return await bcrypt.compare(candidatePassword, this.motDePasse);
+};
+
+// Méthode pour générer un JWT
+userSchema.methods.generateAuthToken = function() {
+  return jwt.sign(
+    { id: this._id, role: this.role },
+    process.env.JWT_SECRET,
+    { expiresIn: process.env.JWT_EXPIRE || '24h' }
+  );
+};
+
+// Méthode pour générer un refresh token
+userSchema.methods.generateRefreshToken = function() {
+  return jwt.sign(
+    { id: this._id },
+    process.env.JWT_REFRESH_SECRET,
+    { expiresIn: process.env.JWT_REFRESH_EXPIRE || '7d' }
+  );
+};
+
+// Virtual pour le nom complet
+userSchema.virtual('nomComplet').get(function() {
+  return this.nom.toUpperCase();
+});
+
+// Index pour optimisation
+userSchema.index({ email: 1 }, { unique: true });
+userSchema.index({ role: 1, estActif: 1 });
+
+module.exports = mongoose.model('User', userSchema);

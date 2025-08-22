@@ -2,88 +2,217 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { check, validationResult } = require('express-validator');
 const Personnel = require('../models/personnel');
-const auth = require('../middlewares/auth'); // pour protéger les routes
+const auth = require('../middlewares/auth');
+const role = require('../middlewares/role'); // Middleware de contrôle des rôles
 
-//  CRÉER un nouveau personnel (inscription)
-router.post('/', async (req, res) => {
+// Validation pour l'inscription
+const validateRegister = [
+  check('nom').trim().notEmpty().withMessage('Le nom est requis'),
+  check('email').isEmail().normalizeEmail().withMessage('Email invalide'),
+  check('motDePasse').isLength({ min: 8 }).withMessage('Le mot de passe doit contenir au moins 8 caractères'),
+  check('poste').isIn(['medecin', 'infirmier', 'administratif', 'technicien']).withMessage('Poste invalide')
+];
+
+// Validation pour la connexion
+const validateLogin = [
+  check('email').isEmail().normalizeEmail(),
+  check('motDePasse').exists().withMessage('Mot de passe requis')
+];
+
+// Inscription (accessible seulement par l'admin)
+router.post('/register', [auth, role('admin'), ...validateRegister], async (req, res) => {
   try {
-    const { nom, poste, email, motDePasse } = req.body;
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ 
+        success: false,
+        errors: errors.array() 
+      });
+    }
 
+    const { nom, email, motDePasse, poste } = req.body;
+
+    // Vérifier l'unicité de l'email
     const utilisateurExistant = await Personnel.findOne({ email });
     if (utilisateurExistant) {
-      return res.status(400).json({ message: 'Cet email est déjà utilisé, veullez entrer un autre mot de email' });
+      return res.status(409).json({
+        success: false,
+        error: 'Cet email est déjà utilisé'
+      });
     }
 
-    const hashedPassword = await bcrypt.hash(motDePasse, 10);
-
+    // Création du personnel
     const nouveauPersonnel = new Personnel({
       nom,
-      poste,
       email,
-      motDePasse: hashedPassword,
+      motDePasse,
+      poste,
+      createdBy: req.user.id
     });
 
-    const savedPersonnel = await nouveauPersonnel.save();
-    res.status(201).json(savedPersonnel);
+    await nouveauPersonnel.save();
+
+    // Ne pas renvoyer le mot de passe
+    const personnelResponse = nouveauPersonnel.toObject();
+    delete personnelResponse.motDePasse;
+
+    res.status(201).json({
+      success: true,
+      data: personnelResponse
+    });
+
   } catch (err) {
-    res.status(400).json({ message: err.message });
+    console.error('Erreur inscription personnel:', err);
+    res.status(500).json({ 
+      success: false,
+      error: 'Erreur serveur' 
+    });
   }
 });
 
-//  LOGIN
-router.post('/login', async (req, res) => {
+// Connexion
+router.post('/login', validateLogin, async (req, res) => {
   try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ 
+        success: false,
+        errors: errors.array() 
+      });
+    }
+
     const { email, motDePasse } = req.body;
 
-    const personnel = await Personnel.findOne({ email });
+    // Recherche du personnel avec le mot de passe
+    const personnel = await Personnel.findOne({ email }).select('+motDePasse');
     if (!personnel) {
-      return res.status(401).json({ message: 'Email ou mot de passe incorrect, vuellez reverifier vos informations' });
+      return res.status(401).json({
+        success: false,
+        error: 'Identifiants incorrects'
+      });
     }
 
+    // Vérification du mot de passe
     const motDePasseValide = await bcrypt.compare(motDePasse, personnel.motDePasse);
     if (!motDePasseValide) {
-      return res.status(401).json({ message: 'Email ou mot de passe incorrect, vuellez reverifier vos informations' });
+      return res.status(401).json({
+        success: false,
+        error: 'Identifiants incorrects'
+      });
     }
 
+    // Génération du token
     const token = jwt.sign(
-      { id: personnel._id, email: personnel.email },
+      { 
+        id: personnel._id, 
+        role: personnel.poste,
+        nom: personnel.nom
+      },
       process.env.JWT_SECRET,
-      { expiresIn: '1d' }
+      { expiresIn: process.env.JWT_EXPIRE || '1d' }
     );
 
-    res.json({ token });
+    // Réponse sans le mot de passe
+    const personnelResponse = personnel.toObject();
+    delete personnelResponse.motDePasse;
+
+    res.json({
+      success: true,
+      token,
+      data: personnelResponse
+    });
+
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error('Erreur connexion personnel:', err);
+    res.status(500).json({ 
+      success: false,
+      error: 'Erreur serveur' 
+    });
   }
 });
 
-// LISTER tout le personnel (protégé)
-router.get('/', auth, async (req, res) => {
+// Lister tout le personnel (protégé, avec pagination)
+router.get('/', [auth, role('admin')], async (req, res) => {
   try {
-    const personnels = await Personnel.find();
-    res.json(personnels);
+    const { page = 1, limit = 10, poste } = req.query;
+    const filter = poste ? { poste } : {};
+
+    const personnels = await Personnel.find(filter)
+      .select('-motDePasse')
+      .sort({ nom: 1 })
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit));
+
+    const count = await Personnel.countDocuments(filter);
+
+    res.json({
+      success: true,
+      data: personnels,
+      meta: {
+        total: count,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        pages: Math.ceil(count / parseInt(limit))
+      }
+    });
+
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error('Erreur listage personnel:', err);
+    res.status(500).json({ 
+      success: false,
+      error: 'Erreur serveur' 
+    });
   }
 });
 
-// LIRE un personnel par ID (protégé)
+// Obtenir un personnel (protégé)
 router.get('/:id', auth, async (req, res) => {
   try {
-    const personnel = await Personnel.findById(req.params.id);
-    if (!personnel) return res.status(404).json({ message: "Personnel non trouvé" });
-    res.json(personnel);
+    if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'ID invalide' 
+      });
+    }
+
+    const personnel = await Personnel.findById(req.params.id).select('-motDePasse');
+    if (!personnel) {
+      return res.status(404).json({ 
+        success: false,
+        error: 'Personnel non trouvé' 
+      });
+    }
+
+    res.json({ 
+      success: true,
+      data: personnel 
+    });
+
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error('Erreur récupération personnel:', err);
+    res.status(500).json({ 
+      success: false,
+      error: 'Erreur serveur' 
+    });
   }
 });
 
-// METTRE À JOUR un personnel (protégé)
-router.put('/:id', auth, async (req, res) => {
+// Mettre à jour un personnel (protégé)
+router.put('/:id', [auth, ...validateRegister], async (req, res) => {
   try {
-    const updates = { ...req.body };
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ 
+        success: false,
+        errors: errors.array() 
+      });
+    }
 
+    const updates = { ...req.body, updatedBy: req.user.id };
+
+    // Si modification du mot de passe
     if (updates.motDePasse) {
       updates.motDePasse = await bcrypt.hash(updates.motDePasse, 10);
     }
@@ -91,30 +220,58 @@ router.put('/:id', auth, async (req, res) => {
     const updatedPersonnel = await Personnel.findByIdAndUpdate(
       req.params.id,
       updates,
-      { new: true }
-    );
+      { new: true, runValidators: true }
+    ).select('-motDePasse');
 
     if (!updatedPersonnel) {
-      return res.status(404).json({ message: "Personnel non trouvé" });
+      return res.status(404).json({ 
+        success: false,
+        error: 'Personnel non trouvé' 
+      });
     }
 
-    res.json(updatedPersonnel);
+    res.json({
+      success: true,
+      data: updatedPersonnel
+    });
+
   } catch (err) {
-    res.status(400).json({ message: err.message });
+    console.error('Erreur modification personnel:', err);
+    res.status(500).json({ 
+      success: false,
+      error: 'Erreur serveur' 
+    });
   }
 });
 
-// SUPPRIMER un personnel (protégé)
-router.delete('/:id', auth, async (req, res) => {
+// Désactiver un compte personnel (plutôt que supprimer)
+router.delete('/:id', [auth, role('admin')], async (req, res) => {
   try {
-    const deletedPersonnel = await Personnel.findByIdAndDelete(req.params.id);
-    if (!deletedPersonnel) {
-      return res.status(404).json({ message: "Personnel non trouvé" });
+    const personnel = await Personnel.findByIdAndUpdate(
+      req.params.id,
+      { estActif: false, updatedBy: req.user.id },
+      { new: true }
+    ).select('-motDePasse');
+
+    if (!personnel) {
+      return res.status(404).json({ 
+        success: false,
+        error: 'Personnel non trouvé' 
+      });
     }
 
-    res.json({ message: "Personnel supprimé avecc succés" });
+    res.json({
+      success: true,
+      message: 'Compte personnel désactivé',
+      data: personnel._id
+    });
+
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error('Erreur désactivation personnel:', err);
+    res.status(500).json({ 
+      success: false,
+      error: 'Erreur serveur' 
+    });
   }
 });
 

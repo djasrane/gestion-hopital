@@ -1,53 +1,116 @@
-const Patient = require('../models/Patient');
+const Patient = require('../models/patient.model');
+const logger = require('../utils/logger'); // Optionnel pour les logs avancés
 
-// Créer un patient
+// Helper pour les réponses API standardisées
+const sendResponse = (res, status, success, data, message) => {
+  return res.status(status).json({ success, data, message });
+};
+
+// Créer un patient avec validation
 exports.creerPatient = async (req, res) => {
   try {
-    const patient = new Patient(req.body);
+    const { nom, prenom, dateNaissance } = req.body;
+
+    // Validation minimale (à compléter avec Joi si besoin)
+    if (!nom || !prenom || !dateNaissance) {
+      return sendResponse(res, 400, false, null, 'Nom, prénom et date de naissance sont obligatoires');
+    }
+
+    const patient = new Patient({ nom, prenom, dateNaissance });
     await patient.save();
-    res.status(201).json(patient);
+
+    // Log de succès (optionnel)
+    logger.info(`Patient créé : ${patient._id}`);
+
+    sendResponse(res, 201, true, patient, 'Patient créé avec succès');
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    logger.error(`Erreur création patient : ${error.message}`);
+    sendResponse(res, 400, false, null, error.message);
   }
 };
 
-// 📃 Lister tous les patients
+// Lister les patients avec pagination
 exports.listerPatients = async (req, res) => {
   try {
-    const patients = await Patient.find();
-    res.json(patients);
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const [patients, total] = await Promise.all([
+      Patient.find().skip(skip).limit(limit),
+      Patient.countDocuments()
+    ]);
+
+    sendResponse(res, 200, true, {
+      items: patients,
+      meta: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit)
+      }
+    }, 'Liste des patients récupérée');
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    logger.error(`Erreur listage patients : ${error.message}`);
+    sendResponse(res, 500, false, null, 'Erreur serveur');
   }
 };
 
-//  Obtenir un patient par ID
+// Obtenir un patient par ID
 exports.getPatientById = async (req, res) => {
   try {
     const patient = await Patient.findById(req.params.id);
-    if (!patient) return res.status(404).json({ message: 'Patient non trouvé' });
-    res.json(patient);
+    if (!patient) {
+      return sendResponse(res, 404, false, null, 'Patient non trouvé');
+    }
+    sendResponse(res, 200, true, patient, 'Patient récupéré');
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    logger.error(`Erreur récupération patient ${req.params.id} : ${error.message}`);
+    sendResponse(res, 500, false, null, 'Erreur serveur');
   }
 };
 
-//  Modifier un patient
+// Modifier un patient (avec vérification des permissions)
 exports.modifierPatient = async (req, res) => {
   try {
-    const patient = await Patient.findByIdAndUpdate(req.params.id, req.body, { new: true });
-    res.json(patient);
+    const { id } = req.params;
+    const updates = req.body;
+
+    // Filtrage des champs modifiables
+    const allowedUpdates = ['nom', 'prenom', 'dateNaissance', 'adresse'];
+    const isValidUpdate = Object.keys(updates).every(field => allowedUpdates.includes(field));
+
+    if (!isValidUpdate) {
+      return sendResponse(res, 400, false, null, 'Champs non autorisés');
+    }
+
+    const patient = await Patient.findByIdAndUpdate(id, updates, { 
+      new: true,
+      runValidators: true // Active la validation du schéma
+    });
+
+    if (!patient) {
+      return sendResponse(res, 404, false, null, 'Patient non trouvé');
+    }
+
+    sendResponse(res, 200, true, patient, 'Patient mis à jour');
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    logger.error(`Erreur modification patient ${req.params.id} : ${error.message}`);
+    sendResponse(res, 400, false, null, error.message);
   }
 };
 
-//  Supprimer un patient
+// Supprimer un patient (avec vérification des permissions)
 exports.supprimerPatient = async (req, res) => {
   try {
-    await Patient.findByIdAndDelete(req.params.id);
-    res.json({ message: 'Patient supprimé' });
+    const patient = await Patient.findByIdAndDelete(req.params.id);
+    if (!patient) {
+      return sendResponse(res, 404, false, null, 'Patient non trouvé');
+    }
+    logger.warn(`Patient supprimé : ${req.params.id}`);
+    sendResponse(res, 200, true, null, 'Patient supprimé');
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    logger.error(`Erreur suppression patient ${req.params.id} : ${error.message}`);
+    sendResponse(res, 500, false, null, 'Erreur serveur');
   }
 };
